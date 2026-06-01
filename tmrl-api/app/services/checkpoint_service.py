@@ -148,11 +148,12 @@ class CheckpointService:
 
     def _validate_extension(self, filename: str) -> None:
         extension = Path(filename).suffix.lower()
-        if extension not in self.settings.allowed_checkpoint_extensions:
+        allowed_extensions = self.settings.allowed_checkpoint_extension_list
+        if extension not in allowed_extensions:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={
                     "code": "INVALID_CHECKPOINT_EXTENSION",
-                    "message": f"Allowed extensions: {', '.join(self.settings.allowed_checkpoint_extensions)}",
+                    "message": f"Allowed extensions: {', '.join(allowed_extensions)}",
                 },
             )
