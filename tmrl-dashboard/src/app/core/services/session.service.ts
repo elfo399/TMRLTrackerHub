@@ -1,7 +1,6 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { Observable, catchError, tap, throwError } from 'rxjs';
 
-import { buildMockSessions } from '../mock/mock-data';
 import { SessionsResponseDto, TrainingSession } from '../models';
 import { ApiService } from './api.service';
 
@@ -20,7 +19,7 @@ export class SessionService {
     this.loadingState.set(true);
     this.errorState.set('');
 
-    return this.api.get<SessionsResponseDto>('/sessions', buildMockSessions).pipe(
+    return this.api.get<SessionsResponseDto>('/sessions').pipe(
       tap((response) => {
         this.sessionsState.set(response.items);
         this.loadingState.set(false);

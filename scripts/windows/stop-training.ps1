@@ -241,6 +241,57 @@ function Invoke-CheckpointUpload {
     }
 }
 
+function Invoke-TrainingSessionStop {
+    param(
+        [string]$ApiUrl,
+        [string]$Token,
+        [string]$SessionId,
+        [string]$StartedAt
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ApiUrl) -or [string]::IsNullOrWhiteSpace($Token) -or [string]::IsNullOrWhiteSpace($SessionId)) {
+        Write-Warning "Sessione Hub non aggiornata: URL, token o session id mancanti."
+        return
+    }
+
+    $endTime = (Get-Date).ToUniversalTime()
+    $durationSeconds = $null
+    if (-not [string]::IsNullOrWhiteSpace($StartedAt)) {
+        try {
+            $startTime = [datetime]::Parse($StartedAt).ToUniversalTime()
+            $durationSeconds = [Math]::Max(0, [int](New-TimeSpan -Start $startTime -End $endTime).TotalSeconds)
+        }
+        catch {
+            $durationSeconds = $null
+        }
+    }
+
+    $payloadTable = @{
+        end_time = $endTime.ToString("o")
+        status   = "stopped"
+        notes    = "Stopped by scripts/windows/stop-training.ps1"
+    }
+
+    if ($null -ne $durationSeconds) {
+        $payloadTable["duration_seconds"] = $durationSeconds
+    }
+
+    try {
+        Invoke-RestMethod `
+            -Uri ($ApiUrl.TrimEnd("/") + "/api/sessions/$SessionId") `
+            -Method Patch `
+            -Headers @{ Authorization = "Bearer $Token" } `
+            -ContentType "application/json" `
+            -Body ($payloadTable | ConvertTo-Json) `
+            -TimeoutSec 10 | Out-Null
+
+        Write-Host "Sessione Hub chiusa: $SessionId" -ForegroundColor Green
+    }
+    catch {
+        Write-Warning "Sessione Hub non aggiornata: $($_.Exception.Message)"
+    }
+}
+
 $repoRoot = Get-RepositoryRoot
 $runtimeRoot = Join-Path $repoRoot "runtime"
 $processesFile = Join-Path $runtimeRoot "processes.json"
@@ -317,10 +368,40 @@ foreach ($role in @("worker", "trainer", "server")) {
 }
 
 $dotenv = Read-DotEnv -Path (Join-Path $repoRoot ".env")
+$apiPort = Get-ConfigValue -DotEnv $dotenv -Name "API_PORT" -Fallback "8000"
+$apiUrl = Get-ConfigValue -DotEnv $dotenv -Name "TMRL_HUB_API_URL" -Fallback ("http://127.0.0.1:{0}" -f $apiPort)
+$apiToken = Get-ConfigValue -DotEnv $dotenv -Name "TMRL_HUB_API_TOKEN" -Fallback (Get-ConfigValue -DotEnv $dotenv -Name "API_TOKEN" -Fallback "")
+
+$hubState = Get-JsonPropertyValue -Object $state -Name "hub"
+$heartbeatRecord = Get-JsonPropertyValue -Object $hubState -Name "heartbeat"
+if ($null -ne $heartbeatRecord) {
+    $heartbeatProcessId = Get-JsonPropertyValue -Object $heartbeatRecord -Name "processId"
+    if ($null -ne $heartbeatProcessId) {
+        $heartbeatProcessId = [int]$heartbeatProcessId
+        if (Test-ProcessAlive -ProcessId $heartbeatProcessId) {
+            Stop-ProcessTree -ProcessId $heartbeatProcessId
+            Start-Sleep -Milliseconds 300
+            $heartbeatStatus = if (Test-ProcessAlive -ProcessId $heartbeatProcessId) { "warning" } else { "stopped" }
+            $heartbeatDetails = if ($heartbeatStatus -eq "warning") { "heartbeat PID $heartbeatProcessId ancora attivo" } else { "heartbeat PID $heartbeatProcessId terminato" }
+        }
+        else {
+            $heartbeatStatus = "stopped"
+            $heartbeatDetails = "heartbeat PID $heartbeatProcessId gia' spento"
+        }
+
+        $report.Add([pscustomobject]@{
+            role    = "heartbeat"
+            status  = $heartbeatStatus
+            details = $heartbeatDetails
+        }) | Out-Null
+    }
+}
+
+$sessionId = Get-JsonPropertyValue -Object $state -Name "sessionId"
+$startedAt = Get-JsonPropertyValue -Object $state -Name "startedAt"
+Invoke-TrainingSessionStop -ApiUrl $apiUrl -Token $apiToken -SessionId $sessionId -StartedAt $startedAt
+
 if ($UploadFinalCheckpoint -or (Test-TrueConfig -DotEnv $dotenv -Name "TMRL_UPLOAD_FINAL_CHECKPOINT")) {
-    $apiPort = Get-ConfigValue -DotEnv $dotenv -Name "API_PORT" -Fallback "8000"
-    $apiUrl = Get-ConfigValue -DotEnv $dotenv -Name "TMRL_HUB_API_URL" -Fallback ("http://127.0.0.1:{0}" -f $apiPort)
-    $apiToken = Get-ConfigValue -DotEnv $dotenv -Name "TMRL_HUB_API_TOKEN" -Fallback (Get-ConfigValue -DotEnv $dotenv -Name "API_TOKEN" -Fallback "")
     $checkpointDirConfig = Get-ConfigValue -DotEnv $dotenv -Name "TMRL_CHECKPOINT_DIR" -Fallback "data\checkpoints"
     $checkpointDir = Resolve-RepositoryPath -RepositoryRoot $repoRoot -Path $checkpointDirConfig
     $allowedExtensionsConfig = Get-ConfigValue -DotEnv $dotenv -Name "TMRL_ALLOWED_CHECKPOINT_EXTENSIONS" -Fallback ".pt,.pth,.ckpt,.tcpt,.tmod,.zip,.bin,.pkl"

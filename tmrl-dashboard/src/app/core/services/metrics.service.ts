@@ -1,7 +1,6 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { Observable, catchError, tap, throwError } from 'rxjs';
 
-import { buildMockMetrics } from '../mock/mock-data';
 import { TrainingMetrics } from '../models';
 import { ApiService } from './api.service';
 import { SettingsService } from './settings.service';
@@ -26,7 +25,7 @@ export class MetricsService {
     this.loadingState.set(!this.metricsState());
     this.errorState.set('');
 
-    return this.api.get<TrainingMetrics>('/metrics', buildMockMetrics).pipe(
+    return this.api.get<TrainingMetrics>('/metrics').pipe(
       tap((metrics) => {
         this.metricsState.set(metrics);
         this.loadingState.set(false);

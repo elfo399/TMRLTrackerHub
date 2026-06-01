@@ -46,12 +46,6 @@ import { SettingsService, getDefaultSettings } from '../../core/services/setting
           }
         </label>
 
-        <label class="toggle-field">
-          <input type="checkbox" formControlName="useMockData" />
-          <span></span>
-          <strong>Use mock data</strong>
-        </label>
-
         <div class="form-actions">
           <button type="submit" class="button" [disabled]="form.invalid">
             <svg lucideSave aria-hidden="true"></svg>
@@ -89,7 +83,6 @@ export class SettingsPageComponent {
       this.settings.getSnapshot().refreshIntervalSeconds,
       [Validators.required, Validators.min(1), Validators.max(120)],
     ],
-    useMockData: [this.settings.getSnapshot().useMockData],
   });
 
   protected save(): void {
@@ -121,7 +114,7 @@ export class SettingsPageComponent {
     this.testMessage.set('Checking...');
 
     this.health.load().subscribe({
-      next: () => this.testMessage.set(this.form.controls.useMockData.value ? 'Mock API attiva' : 'API raggiungibile'),
+      next: () => this.testMessage.set('API raggiungibile'),
       error: () => this.testMessage.set('API non raggiungibile'),
     });
   }

@@ -19,7 +19,6 @@ export function getDefaultSettings(): DashboardSettings {
     apiUrl: runtimeConfig?.apiUrl?.trim() || environment.apiUrl,
     apiToken: runtimeConfig?.apiToken?.trim() || environment.apiToken,
     refreshIntervalSeconds: runtimeConfig?.refreshInterval ?? environment.refreshInterval,
-    useMockData: runtimeConfig?.useMockData ?? environment.useMockApi,
   };
 }
 
@@ -39,7 +38,6 @@ export class SettingsService {
       apiUrl: settings.apiUrl.trim() || defaultSettings.apiUrl,
       apiToken: settings.apiToken.trim(),
       refreshIntervalSeconds: Math.max(1, Math.min(120, Number(settings.refreshIntervalSeconds))),
-      useMockData: settings.useMockData,
     };
 
     this.writeSettings(normalized);

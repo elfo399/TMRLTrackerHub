@@ -18,7 +18,13 @@ param(
     [switch]$Force,
     [switch]$DownloadLatestCheckpoint,
     [string]$SocketHost = "127.0.0.1",
-    [int]$SocketPort = 9000
+    [int]$SocketPort = 9000,
+    [int]$CpuThreads = 0,
+    [string]$CpuCores = "",
+    [ValidateSet("Idle", "BelowNormal", "Normal", "AboveNormal", "High")]
+    [string]$ProcessPriority = "BelowNormal",
+    [switch]$NoLogViewer,
+    [switch]$IncludeServerLog
 )
 
 Set-StrictMode -Version Latest
@@ -124,6 +130,31 @@ function Resolve-CheckpointDownloadDirectory {
     return Join-Path $RepositoryRoot "data\checkpoints"
 }
 
+function Resolve-TmrlDataDirectory {
+    param(
+        [string]$RepositoryRoot,
+        [hashtable]$DotEnv
+    )
+
+    $configuredPath = Get-ConfigValue -DotEnv $DotEnv -Name "TMRL_DATA_DIR" -Fallback ""
+    if (-not [string]::IsNullOrWhiteSpace($configuredPath)) {
+        return Resolve-RepositoryPath -RepositoryRoot $RepositoryRoot -Path $configuredPath
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($env:TMRL_DATA_DIR)) {
+        return $env:TMRL_DATA_DIR
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($env:USERPROFILE)) {
+        $userTmrlData = Join-Path $env:USERPROFILE "TmrlData"
+        if (Test-Path -LiteralPath $userTmrlData -PathType Container) {
+            return $userTmrlData
+        }
+    }
+
+    return Join-Path $RepositoryRoot "TmrlData"
+}
+
 function Quote-Argument {
     param([string]$Value)
     return '"' + ($Value -replace '"', '\"') + '"'
@@ -212,6 +243,87 @@ function Invoke-LatestCheckpointDownload {
     }
 }
 
+function Invoke-TrainingSessionStart {
+    param(
+        [string]$ApiUrl,
+        [string]$Token,
+        [string]$SessionId
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ApiUrl) -or [string]::IsNullOrWhiteSpace($Token)) {
+        Write-Warning "Sessione Hub non creata: TMRL_HUB_API_URL o token mancanti."
+        return $false
+    }
+
+    $headers = @{ Authorization = "Bearer $Token" }
+    $payload = @{
+        id         = $SessionId
+        start_time = (Get-Date).ToUniversalTime().ToString("o")
+        notes      = "Started by scripts/windows/start-training.ps1"
+    } | ConvertTo-Json
+
+    try {
+        Invoke-RestMethod `
+            -Uri ($ApiUrl.TrimEnd("/") + "/api/sessions") `
+            -Method Post `
+            -Headers $headers `
+            -ContentType "application/json" `
+            -Body $payload `
+            -TimeoutSec 10 | Out-Null
+
+        Write-Host "Sessione Hub creata: $SessionId" -ForegroundColor Green
+        return $true
+    }
+    catch {
+        Write-Warning "Sessione Hub non creata: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+function Start-HeartbeatPublisher {
+    param(
+        [string]$RepositoryRoot,
+        [string]$ApiUrl,
+        [string]$Token,
+        [string]$SessionId,
+        [string]$TmrlDataDir,
+        [string]$LogPath,
+        [int]$IntervalSeconds,
+        [string]$PowerShellExe
+    )
+
+    $scriptPath = Join-Path $RepositoryRoot "scripts\windows\publish-training-heartbeat.ps1"
+    if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
+        Write-Warning "Heartbeat non avviato: script non trovato $scriptPath"
+        return $null
+    }
+
+    if ([string]::IsNullOrWhiteSpace($ApiUrl) -or [string]::IsNullOrWhiteSpace($Token)) {
+        Write-Warning "Heartbeat non avviato: TMRL_HUB_API_URL o token mancanti."
+        return $null
+    }
+
+    $arguments = @(
+        "-ExecutionPolicy", "Bypass",
+        "-File", (Quote-Argument $scriptPath),
+        "-SessionId", (Quote-Argument $SessionId),
+        "-ApiUrl", (Quote-Argument $ApiUrl),
+        "-Token", (Quote-Argument $Token),
+        "-IntervalSeconds", $IntervalSeconds,
+        "-TmrlDataDir", (Quote-Argument $TmrlDataDir),
+        "-LogPath", (Quote-Argument $LogPath)
+    ) -join " "
+
+    $process = Start-Process -FilePath $PowerShellExe -ArgumentList $arguments -WindowStyle Hidden -PassThru
+    Write-Host "Heartbeat Hub PID: $($process.Id)"
+    return [pscustomobject]@{
+        role      = "heartbeat"
+        processId = [int]$process.Id
+        logPath   = $LogPath
+        startedAt = (Get-Date).ToString("o")
+    }
+}
+
 function Test-RecordedProcessesAlive {
     param([string]$ProcessesFile)
 
@@ -259,7 +371,14 @@ param(
     [string]$LogPath,
 
     [Parameter(Mandatory = $true)]
-    [string]$PidPath
+    [string]$PidPath,
+
+    [int]$CpuThreads = 0,
+
+    [string]$CpuCores = "",
+
+    [ValidateSet("Idle", "BelowNormal", "Normal", "AboveNormal", "High")]
+    [string]$ProcessPriority = "BelowNormal"
 )
 
 Set-StrictMode -Version Latest
@@ -276,26 +395,73 @@ function Write-LogLine {
     Add-Content -LiteralPath $Path -Value $line -Encoding UTF8
 }
 
+function Convert-CpuCoresToAffinityMask {
+    param([string]$Cores)
+
+    if ([string]::IsNullOrWhiteSpace($Cores)) {
+        return $null
+    }
+
+    $mask = [int64]0
+    foreach ($item in $Cores.Split(",")) {
+        $coreText = $item.Trim()
+        if ([string]::IsNullOrWhiteSpace($coreText)) {
+            continue
+        }
+
+        $core = 0
+        if (-not [int]::TryParse($coreText, [ref]$core) -or $core -lt 0 -or $core -gt 62) {
+            throw "Invalid CPU core index '$coreText'. Use a comma-separated list like 0,1,2,3."
+        }
+
+        $mask = $mask -bor ([int64]1 -shl $core)
+    }
+
+    if ($mask -eq 0) {
+        return $null
+    }
+
+    return [IntPtr]$mask
+}
+
 Set-Location -LiteralPath $RepoRoot
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $LogPath) | Out-Null
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $PidPath) | Out-Null
 
 Write-Host ""
 Write-Host "TMRL $Role"
-Write-Host "Command: python -m tmrl --$Role"
+Write-Host "Command: python -u -m tmrl --$Role"
 Write-Host "Log: $LogPath"
 Write-Host ""
 
-Write-LogLine -Path $LogPath -Message "starting role=$Role command=python -m tmrl --$Role"
+Write-LogLine -Path $LogPath -Message "starting role=$Role command=python -u -m tmrl --$Role"
 
 $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
 $startInfo.FileName = $PythonExe
-$startInfo.Arguments = "-m tmrl --$Role"
+$startInfo.Arguments = "-u -m tmrl --$Role"
 $startInfo.WorkingDirectory = $RepoRoot
 $startInfo.UseShellExecute = $false
 $startInfo.RedirectStandardOutput = $true
 $startInfo.RedirectStandardError = $true
 $startInfo.CreateNoWindow = $true
+$startInfo.EnvironmentVariables["PYTHONUNBUFFERED"] = "1"
+$startInfo.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8"
+$startInfo.EnvironmentVariables["PYTHONUTF8"] = "1"
+
+if ($CpuThreads -gt 0) {
+    foreach ($name in @(
+        "OMP_NUM_THREADS",
+        "MKL_NUM_THREADS",
+        "OPENBLAS_NUM_THREADS",
+        "NUMEXPR_NUM_THREADS",
+        "VECLIB_MAXIMUM_THREADS",
+        "BLIS_NUM_THREADS",
+        "RAYON_NUM_THREADS",
+        "TORCH_NUM_THREADS"
+    )) {
+        $startInfo.EnvironmentVariables[$name] = [string]$CpuThreads
+    }
+}
 
 $process = [System.Diagnostics.Process]::new()
 $process.StartInfo = $startInfo
@@ -328,6 +494,37 @@ try {
     Set-Content -LiteralPath $PidPath -Value $process.Id -Encoding ASCII
     Write-Host "Python PID: $($process.Id)"
     Write-LogLine -Path $LogPath -Message "python pid=$($process.Id)"
+
+    if (-not [string]::IsNullOrWhiteSpace($ProcessPriority)) {
+        try {
+            $priorityClass = [System.Enum]::Parse([System.Diagnostics.ProcessPriorityClass], $ProcessPriority)
+            $process.PriorityClass = $priorityClass
+            Write-Host "Priority: $ProcessPriority"
+            Write-LogLine -Path $LogPath -Message "priority=$ProcessPriority"
+        }
+        catch {
+            Write-LogLine -Path $LogPath -Message "priority not applied: $($_.Exception.Message)" -Level "WARN"
+        }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($CpuCores)) {
+        try {
+            $affinityMask = Convert-CpuCoresToAffinityMask -Cores $CpuCores
+            if ($null -ne $affinityMask) {
+                $process.ProcessorAffinity = $affinityMask
+                Write-Host "CPU cores: $CpuCores"
+                Write-LogLine -Path $LogPath -Message "cpu_cores=$CpuCores affinity_mask=$affinityMask"
+            }
+        }
+        catch {
+            Write-LogLine -Path $LogPath -Message "cpu affinity not applied: $($_.Exception.Message)" -Level "WARN"
+        }
+    }
+
+    if ($CpuThreads -gt 0) {
+        Write-Host "CPU threads env limit: $CpuThreads"
+        Write-LogLine -Path $LogPath -Message "cpu_threads=$CpuThreads"
+    }
 
     $process.BeginOutputReadLine()
     $process.BeginErrorReadLine()
@@ -362,7 +559,10 @@ function Start-TmrlRole {
         [string]$LogPath,
         [string]$PidPath,
         [string]$RunnerPath,
-        [string]$PowerShellExe
+        [string]$PowerShellExe,
+        [int]$CpuThreads,
+        [string]$CpuCores,
+        [string]$ProcessPriority
     )
 
     if (Test-Path -LiteralPath $PidPath) {
@@ -377,7 +577,10 @@ function Start-TmrlRole {
         "-RepoRoot", (Quote-Argument $RepositoryRoot),
         "-PythonExe", (Quote-Argument $PythonExe),
         "-LogPath", (Quote-Argument $LogPath),
-        "-PidPath", (Quote-Argument $PidPath)
+        "-PidPath", (Quote-Argument $PidPath),
+        "-CpuThreads", $CpuThreads,
+        "-CpuCores", (Quote-Argument $CpuCores),
+        "-ProcessPriority", $ProcessPriority
     ) -join " "
 
     $terminalProcess = Start-Process -FilePath $PowerShellExe -ArgumentList $argumentList -PassThru
@@ -408,7 +611,7 @@ $scriptsRoot = $PSScriptRoot
 $logsRoot = Join-Path $repoRoot "logs"
 $runtimeRoot = Join-Path $repoRoot "runtime"
 $processesFile = Join-Path $runtimeRoot "processes.json"
-$sessionId = Get-Date -Format "yyyyMMdd-HHmmss"
+$sessionId = Get-Date -Format "yyyyMMdd-HHmmssfff"
 
 New-Item -ItemType Directory -Force -Path $logsRoot, $runtimeRoot | Out-Null
 
@@ -436,6 +639,13 @@ $apiPort = Get-ConfigValue -DotEnv $dotenv -Name "API_PORT" -Fallback "8000"
 $apiUrl = Get-ConfigValue -DotEnv $dotenv -Name "TMRL_HUB_API_URL" -Fallback ("http://127.0.0.1:{0}" -f $apiPort)
 $apiToken = Get-ConfigValue -DotEnv $dotenv -Name "TMRL_HUB_API_TOKEN" -Fallback (Get-ConfigValue -DotEnv $dotenv -Name "API_TOKEN" -Fallback "")
 $checkpointDir = Resolve-CheckpointDownloadDirectory -RepositoryRoot $repoRoot -DotEnv $dotenv
+$tmrlDataDir = Resolve-TmrlDataDirectory -RepositoryRoot $repoRoot -DotEnv $dotenv
+$heartbeatIntervalRaw = Get-ConfigValue -DotEnv $dotenv -Name "TMRL_HEARTBEAT_INTERVAL_SECONDS" -Fallback "5"
+$heartbeatIntervalSeconds = 5
+if (-not [int]::TryParse($heartbeatIntervalRaw, [ref]$heartbeatIntervalSeconds) -or $heartbeatIntervalSeconds -lt 1) {
+    $heartbeatIntervalSeconds = 5
+}
+$hubSessionCreated = Invoke-TrainingSessionStart -ApiUrl $apiUrl -Token $apiToken -SessionId $sessionId
 
 if ($DownloadLatestCheckpoint -or (Test-TrueConfig -DotEnv $dotenv -Name "TMRL_DOWNLOAD_LATEST_ON_START")) {
     Invoke-LatestCheckpointDownload -ApiUrl $apiUrl -Token $apiToken -CheckpointDirectory $checkpointDir
@@ -445,6 +655,7 @@ $logFiles = @{
     server  = Join-Path $logsRoot "server.log"
     trainer = Join-Path $logsRoot "trainer.log"
     worker  = Join-Path $logsRoot "worker.log"
+    heartbeat = Join-Path $logsRoot "heartbeat.log"
 }
 
 foreach ($role in @("server", "trainer", "worker")) {
@@ -456,6 +667,43 @@ foreach ($role in @("server", "trainer", "worker")) {
         "============================================================"
     )
     Set-Content -LiteralPath $logFiles[$role] -Value $header -Encoding UTF8
+}
+
+Set-Content -LiteralPath $logFiles.heartbeat -Value @(
+    "============================================================",
+    "TMRL heartbeat session $sessionId",
+    "Started: $(Get-Date -Format o)",
+    "Repository: $repoRoot",
+    "============================================================"
+) -Encoding UTF8
+
+$heartbeatRecord = Start-HeartbeatPublisher `
+    -RepositoryRoot $repoRoot `
+    -ApiUrl $apiUrl `
+    -Token $apiToken `
+    -SessionId $sessionId `
+    -TmrlDataDir $tmrlDataDir `
+    -LogPath $logFiles.heartbeat `
+    -IntervalSeconds $heartbeatIntervalSeconds `
+    -PowerShellExe $powerShellExe
+
+if (-not $NoLogViewer) {
+    $watchLogsScript = Join-Path $scriptsRoot "watch-training-logs.ps1"
+    if (Test-Path -LiteralPath $watchLogsScript -PathType Leaf) {
+        $viewerRoles = @("trainer", "worker")
+        if ($IncludeServerLog) {
+            $viewerRoles = @("server") + $viewerRoles
+        }
+
+        $viewerArguments = @(
+            "-ExecutionPolicy", "Bypass",
+            "-File", (Quote-Argument $watchLogsScript),
+            "-Roles", ($viewerRoles -join ","),
+            "-NewWindows"
+        ) -join " "
+
+        Start-Process -FilePath $powerShellExe -ArgumentList $viewerArguments | Out-Null
+    }
 }
 
 $runnerPath = Join-Path $runtimeRoot "run-tmrl-process.ps1"
@@ -474,7 +722,10 @@ foreach ($role in @("server", "trainer", "worker")) {
         -LogPath $logFiles[$role] `
         -PidPath $pidPath `
         -RunnerPath $runnerPath `
-        -PowerShellExe $powerShellExe
+        -PowerShellExe $powerShellExe `
+        -CpuThreads $CpuThreads `
+        -CpuCores $CpuCores `
+        -ProcessPriority $ProcessPriority
 
     $processRecords[$role] = $record
 }
@@ -485,6 +736,17 @@ $state = [ordered]@{
     startedAt     = (Get-Date).ToString("o")
     apiUrl        = $apiUrl
     checkpointDir = $checkpointDir
+    tmrlDataDir   = $tmrlDataDir
+    hub           = [ordered]@{
+        sessionCreated           = $hubSessionCreated
+        heartbeatIntervalSeconds = $heartbeatIntervalSeconds
+        heartbeat                = $heartbeatRecord
+    }
+    cpu           = [ordered]@{
+        threads  = $CpuThreads
+        cores    = $CpuCores
+        priority = $ProcessPriority
+    }
     logs          = $logFiles
     processes     = $processRecords
 }

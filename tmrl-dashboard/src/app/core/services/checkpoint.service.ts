@@ -1,7 +1,6 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { Observable, catchError, map, tap, throwError } from 'rxjs';
 
-import { buildMockActionResult, buildMockCheckpoints } from '../mock/mock-data';
 import { Checkpoint, CheckpointActionResult, CheckpointsResponseDto } from '../models';
 import { ApiService } from './api.service';
 
@@ -23,7 +22,7 @@ export class CheckpointService {
     this.errorState.set('');
     this.actionMessageState.set('');
 
-    return this.api.get<CheckpointsResponseDto>('/checkpoints', buildMockCheckpoints).pipe(
+    return this.api.get<CheckpointsResponseDto>('/checkpoints').pipe(
       tap((response) => {
         this.checkpointsState.set(response.items);
         this.loadingState.set(false);
@@ -41,13 +40,10 @@ export class CheckpointService {
     const fileName = checkpoint?.fileName ?? `${id}.bin`;
 
     return this.api
-      .download(
-        `/checkpoints/${id}/download`,
-        () => new Blob([`mock checkpoint payload for ${id}`], { type: 'application/octet-stream' }),
-      )
+      .download(`/checkpoints/${id}/download`)
       .pipe(
         tap((blob) => this.saveBlob(blob, fileName)),
-        map(() => buildMockActionResult(id, 'downloaded', `Download avviato: ${fileName}`)),
+        map((): CheckpointActionResult => ({ id, action: 'downloaded', message: `Download avviato: ${fileName}` })),
         tap((result) => this.actionMessageState.set(result.message)),
         catchError((error: unknown) => {
           this.actionMessageState.set('Download non riuscito');
@@ -61,7 +57,6 @@ export class CheckpointService {
       .post<Record<string, never>, CheckpointActionResult>(
         `/checkpoints/${id}/latest`,
         {},
-        () => buildMockActionResult(id, 'marked-latest', 'Checkpoint marcato come latest'),
       )
       .pipe(
         tap((result) => {
@@ -73,10 +68,7 @@ export class CheckpointService {
 
   deleteCheckpoint(id: string): Observable<CheckpointActionResult> {
     return this.api
-      .delete<CheckpointActionResult>(
-        `/checkpoints/${id}`,
-        () => buildMockActionResult(id, 'deleted', 'Checkpoint eliminato dai mock'),
-      )
+      .delete<CheckpointActionResult>(`/checkpoints/${id}`)
       .pipe(
         tap((result) => {
           this.checkpointsState.update((items) => items.filter((item) => item.id !== id));

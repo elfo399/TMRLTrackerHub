@@ -1,7 +1,7 @@
 export interface ApiMetaDto {
   requestId: string;
   generatedAt: string;
-  source: 'mock' | 'live';
+  source: 'live';
 }
 
 export interface ApiErrorDto {

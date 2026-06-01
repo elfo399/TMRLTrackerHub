@@ -1,7 +1,6 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { Observable, catchError, tap, throwError } from 'rxjs';
 
-import { buildMockHealth } from '../mock/mock-data';
 import { HealthResponseDto } from '../models';
 import { ApiService } from './api.service';
 
@@ -20,7 +19,7 @@ export class HealthService {
     this.loadingState.set(true);
     this.errorState.set('');
 
-    return this.api.get<HealthResponseDto>('/health', buildMockHealth).pipe(
+    return this.api.get<HealthResponseDto>('/health').pipe(
       tap((health) => {
         this.healthState.set(health);
         this.loadingState.set(false);

@@ -1,6 +1,6 @@
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Injectable, inject, signal } from '@angular/core';
-import { Observable, catchError, delay, defer, of, tap, throwError } from 'rxjs';
+import { Observable, catchError, tap, throwError } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
 import { ApiConnectionState } from '../models';
@@ -12,17 +12,13 @@ export class ApiService {
   private readonly settingsService = inject(SettingsService);
 
   readonly connectionState = signal<ApiConnectionState>({
-    status: environment.useMockApi ? 'mock' : 'checking',
-    mode: environment.useMockApi ? 'mock' : 'http',
+    status: 'checking',
+    mode: 'http',
     checkedAt: new Date().toISOString(),
-    message: environment.useMockApi ? 'Mock data active' : 'Waiting for first API call',
+    message: 'Waiting for first API call',
   });
 
-  get<T>(path: string, mockFactory: () => T): Observable<T> {
-    if (this.shouldUseMockData()) {
-      return this.mock(mockFactory, 'Mock data active');
-    }
-
+  get<T>(path: string): Observable<T> {
     this.markChecking();
 
     return this.http.get<T>(this.url(path), { headers: this.headers() }).pipe(
@@ -34,12 +30,7 @@ export class ApiService {
   post<TRequest, TResponse>(
     path: string,
     body: TRequest,
-    mockFactory: () => TResponse,
   ): Observable<TResponse> {
-    if (this.shouldUseMockData()) {
-      return this.mock(mockFactory, 'Mock action');
-    }
-
     this.markChecking();
 
     return this.http.post<TResponse>(this.url(path), body, { headers: this.headers() }).pipe(
@@ -48,11 +39,7 @@ export class ApiService {
     );
   }
 
-  delete<T>(path: string, mockFactory: () => T): Observable<T> {
-    if (this.shouldUseMockData()) {
-      return this.mock(mockFactory, 'Mock action');
-    }
-
+  delete<T>(path: string): Observable<T> {
     this.markChecking();
 
     return this.http.delete<T>(this.url(path), { headers: this.headers() }).pipe(
@@ -61,34 +48,13 @@ export class ApiService {
     );
   }
 
-  download(path: string, mockFactory: () => Blob): Observable<Blob> {
-    if (this.shouldUseMockData()) {
-      return this.mock(mockFactory, 'Mock download');
-    }
-
+  download(path: string): Observable<Blob> {
     this.markChecking();
 
     return this.http.get(this.url(path), { headers: this.headers(), responseType: 'blob' }).pipe(
       tap(() => this.markConnected('HTTP API online')),
       catchError((error: unknown) => this.handleError(error)),
     );
-  }
-
-  private mock<T>(factory: () => T, message: string): Observable<T> {
-    return defer(() => {
-      this.connectionState.set({
-        status: 'mock',
-        mode: 'mock',
-        checkedAt: new Date().toISOString(),
-        message,
-      });
-
-      return of(factory()).pipe(delay(220));
-    });
-  }
-
-  private shouldUseMockData(): boolean {
-    return this.settingsService.getSnapshot().useMockData;
   }
 
   private url(path: string): string {

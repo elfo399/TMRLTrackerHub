@@ -1,7 +1,6 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { Observable, catchError, tap, throwError } from 'rxjs';
 
-import { buildMockStatus } from '../mock/mock-data';
 import { TrainingStatus } from '../models';
 import { ApiService } from './api.service';
 
@@ -20,7 +19,7 @@ export class StatusService {
     this.loadingState.set(true);
     this.errorState.set('');
 
-    return this.api.get<TrainingStatus>('/status', buildMockStatus).pipe(
+    return this.api.get<TrainingStatus>('/status').pipe(
       tap((status) => {
         this.statusState.set(status);
         this.loadingState.set(false);

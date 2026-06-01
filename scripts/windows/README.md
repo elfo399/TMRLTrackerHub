@@ -47,15 +47,84 @@ Lo script:
 - crea `logs\server.log`, `logs\trainer.log`, `logs\worker.log`
 - apre tre terminali separati
 - avvia:
-  - `python -m tmrl --server`
-  - `python -m tmrl --trainer`
-  - `python -m tmrl --worker`
+  - `python -u -m tmrl --server`
+  - `python -u -m tmrl --trainer`
+  - `python -u -m tmrl --worker`
+- apre due finestre log live per `trainer.log` e `worker.log`
+- crea una sessione sul backend TMRL Hub, se `TMRL_HUB_API_URL` e token sono configurati
+- pubblica heartbeat metriche ogni 5 secondi per non lasciare vuota la pagina Metrics
 - salva i PID in `runtime\processes.json`
 
 Se vuoi forzare l'avvio anche con check non superati:
 
 ```powershell
 .\scripts\windows\start-training.ps1 -Force
+```
+
+Se vuoi includere anche il log server nei viewer live:
+
+```powershell
+.\scripts\windows\start-training.ps1 -IncludeServerLog
+```
+
+Se non vuoi aprire finestre log automatiche:
+
+```powershell
+.\scripts\windows\start-training.ps1 -NoLogViewer
+```
+
+## Log live
+
+I log sono scritti in tempo reale in:
+
+```text
+logs\server.log
+logs\trainer.log
+logs\worker.log
+```
+
+Per aprire viewer separati per trainer e worker:
+
+```powershell
+.\scripts\windows\watch-training-logs.ps1 -NewWindows
+```
+
+Per vedere anche il server:
+
+```powershell
+.\scripts\windows\watch-training-logs.ps1 -IncludeServer -NewWindows
+```
+
+Per seguire tutto nel terminale corrente:
+
+```powershell
+.\scripts\windows\watch-training-logs.ps1 -Roles trainer,worker
+```
+
+## Limitare uso CPU
+
+Per ridurre l'impatto del training sul PC puoi avviare TMRL con priorita' bassa, pochi thread CPU e affinity su alcuni core:
+
+```powershell
+.\scripts\windows\start-training.ps1 -CpuThreads 4 -CpuCores "0,1,2,3" -ProcessPriority BelowNormal
+```
+
+Parametri:
+
+- `-CpuThreads`: imposta i thread usati da librerie numeriche Python/PyTorch tramite variabili come `OMP_NUM_THREADS`, `MKL_NUM_THREADS`, `OPENBLAS_NUM_THREADS`.
+- `-CpuCores`: limita i processi Python ai core indicati, ad esempio `"0,1,2,3"`.
+- `-ProcessPriority`: accetta `Idle`, `BelowNormal`, `Normal`, `AboveNormal`, `High`. Il default e' `BelowNormal`.
+
+Configurazione consigliata per giocare mentre allena:
+
+```powershell
+.\scripts\windows\start-training.ps1 -CpuThreads 2 -CpuCores "0,1" -ProcessPriority Idle
+```
+
+Configurazione piu' bilanciata:
+
+```powershell
+.\scripts\windows\start-training.ps1 -CpuThreads 4 -CpuCores "0,1,2,3" -ProcessPriority BelowNormal
 ```
 
 ## Stop training
@@ -84,6 +153,7 @@ $env:TMRL_HUB_API_TOKEN = "inserisci-token-api"
 $env:TMRL_CHECKPOINT_DIR = "data\checkpoints"
 $env:TMRL_DOWNLOAD_CHECKPOINT_DIR = "$env:USERPROFILE\TmrlData\checkpoints"
 $env:TMRL_ALLOWED_CHECKPOINT_EXTENSIONS = ".pt,.pth,.ckpt,.tcpt,.tmod,.zip,.bin,.pkl"
+$env:TMRL_HEARTBEAT_INTERVAL_SECONDS = "5"
 $env:TMRL_DOWNLOAD_LATEST_ON_START = "true"
 $env:TMRL_UPLOAD_FINAL_CHECKPOINT = "true"
 ```
@@ -121,13 +191,19 @@ Se `TMRL_CHECKPOINT_DIR` non e' configurato, lo script cerca automaticamente in:
 Endpoint usati:
 
 - `GET /api/export/latest`
+- `POST /api/sessions`
+- `PATCH /api/sessions/{id}`
+- `POST /api/metrics`
 - `POST /api/checkpoints/upload`
+
+Nota: l'heartbeat metriche non e' ancora un parser completo di TMRL. Serve a indicare sessione viva e a popolare la dashboard con campioni temporali base. Reward, actor loss e critic loss restano a `0` finche' non viene aggiunto un parser dedicato dei log/telemetria TMRL.
 
 ## File generati
 
 - `logs\server.log`
 - `logs\trainer.log`
 - `logs\worker.log`
+- `logs\heartbeat.log`
 - `runtime\processes.json`
 - `runtime\*.pid`
 - `runtime\stop-report-*.json`

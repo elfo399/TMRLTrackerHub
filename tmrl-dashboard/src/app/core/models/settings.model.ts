@@ -2,7 +2,6 @@ export interface DashboardSettings {
   apiUrl: string;
   apiToken: string;
   refreshIntervalSeconds: number;
-  useMockData: boolean;
 }
 
 export interface AppRuntimeConfig {
@@ -10,5 +9,4 @@ export interface AppRuntimeConfig {
   apiToken?: string;
   refreshInterval?: number;
   appVersion?: string;
-  useMockData?: boolean;
 }

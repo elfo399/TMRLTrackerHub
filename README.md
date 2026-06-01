@@ -72,11 +72,10 @@ npm install
 npm start
 ```
 
-The Angular app uses mock data by default in development. To use a live API, update Settings in the UI with:
+The Angular app calls the live API configured in Settings:
 
 ```text
 API URL: /api
-Use mock data: off
 ```
 
 Production build:

@@ -135,10 +135,6 @@ export class AppLayoutComponent {
   protected connectionLabel(): string {
     const connection = this.api.connectionState();
 
-    if (connection.status === 'mock') {
-      return 'Mock API';
-    }
-
     if (connection.status === 'connected') {
       return 'API online';
     }

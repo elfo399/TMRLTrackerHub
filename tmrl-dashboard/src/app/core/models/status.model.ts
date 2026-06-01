@@ -51,11 +51,11 @@ export interface StatusResponseDto {
 export type RuntimeServiceStatus = RuntimeServiceStatusDto;
 export type TrainingStatus = StatusResponseDto;
 
-export type ApiConnectionStatus = 'connected' | 'mock' | 'offline' | 'checking';
+export type ApiConnectionStatus = 'connected' | 'offline' | 'checking';
 
 export interface ApiConnectionState {
   status: ApiConnectionStatus;
-  mode: 'mock' | 'http';
+  mode: 'http';
   checkedAt: string;
   message: string;
 }
