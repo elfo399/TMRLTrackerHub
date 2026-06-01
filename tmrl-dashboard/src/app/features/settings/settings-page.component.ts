@@ -3,7 +3,7 @@ import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { LucideCheck, LucideRefreshCw, LucideSave } from '@lucide/angular';
 
 import { HealthService } from '../../core/services/health.service';
-import { SettingsService, defaultSettings } from '../../core/services/settings.service';
+import { SettingsService, getDefaultSettings } from '../../core/services/settings.service';
 
 @Component({
   selector: 'app-settings-page',
@@ -106,7 +106,7 @@ export class SettingsPageComponent {
 
   protected reset(): void {
     this.settings.reset();
-    this.form.setValue(defaultSettings);
+    this.form.setValue(getDefaultSettings());
     this.saved.set(false);
     this.testMessage.set('Settings ripristinati');
   }

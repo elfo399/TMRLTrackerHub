@@ -12,7 +12,11 @@ RUN npm run build:prod
 FROM nginx:1.27-alpine AS runtime
 
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY docker-runtime-config.sh /docker-entrypoint.d/40-runtime-config.sh
 COPY --from=build /app/dist/tmrl-dashboard/browser /usr/share/nginx/html
+
+RUN sed -i 's/\r$//' /docker-entrypoint.d/40-runtime-config.sh && \
+    chmod +x /docker-entrypoint.d/40-runtime-config.sh
 
 EXPOSE 80
 

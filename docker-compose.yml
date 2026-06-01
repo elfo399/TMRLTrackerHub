@@ -57,6 +57,7 @@ services:
       start_period: 15s
     networks:
       - tmrl-hub
+      - proxyManager
 
   tmrl-dashboard:
     build:
@@ -65,6 +66,11 @@ services:
     image: tmrl-dashboard:local
     container_name: tmrl-dashboard
     restart: unless-stopped
+    environment:
+      DASHBOARD_API_URL: /api
+      DASHBOARD_API_TOKEN: ${API_TOKEN:-change-me}
+      DASHBOARD_REFRESH_INTERVAL: ${DASHBOARD_REFRESH_INTERVAL:-5}
+      DASHBOARD_APP_VERSION: ${APP_VERSION:-0.1.0}
     ports:
       - "${DASHBOARD_PORT:-8080}:80"
     depends_on:
@@ -78,10 +84,14 @@ services:
       start_period: 10s
     networks:
       - tmrl-hub
+      - proxyManager
 
 networks:
   tmrl-hub:
     name: tmrl-hub
+  proxyManager:
+    external: true
+    name: proxyManager
 
 volumes:
   postgres_data:

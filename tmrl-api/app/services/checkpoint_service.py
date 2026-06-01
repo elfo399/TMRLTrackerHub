@@ -21,6 +21,7 @@ from app.schemas.checkpoint import (
 )
 
 safe_filename_pattern = re.compile(r"[^A-Za-z0-9._-]+")
+versioned_filename_pattern = re.compile(r"^(?P<base>.+)_v(?P<version>\d+)$")
 
 
 class CheckpointService:
@@ -39,8 +40,9 @@ class CheckpointService:
         )
 
     async def upload_checkpoint(self, upload: UploadFile, reward: Optional[float]) -> CheckpointOut:
-        file_name = self._sanitize_filename(upload.filename or "checkpoint.bin")
-        self._validate_extension(file_name)
+        original_file_name = self._sanitize_filename(upload.filename or "checkpoint.bin")
+        self._validate_extension(original_file_name)
+        file_name = self._next_versioned_filename(original_file_name)
 
         checkpoint_id = f"ckpt-{uuid4().hex[:12]}"
         storage_name = f"{checkpoint_id}-{file_name}"
@@ -157,3 +159,27 @@ class CheckpointService:
                     "message": f"Allowed extensions: {', '.join(allowed_extensions)}",
                 },
             )
+
+    def _next_versioned_filename(self, filename: str) -> str:
+        path = Path(filename)
+        suffix = path.suffix
+        base_name = self._base_checkpoint_name(path.stem)
+        pattern = re.compile(rf"^{re.escape(base_name)}_v(?P<version>\d+){re.escape(suffix)}$")
+        max_version = 0
+
+        existing_names = self.db.scalars(
+            select(CheckpointRecord.file_name).where(CheckpointRecord.file_name.like(f"{base_name}_v%{suffix}"))
+        ).all()
+
+        for existing_name in existing_names:
+            match = pattern.match(existing_name)
+            if match is not None:
+                max_version = max(max_version, int(match.group("version")))
+
+        return f"{base_name}_v{max_version + 1:03d}{suffix}"
+
+    def _base_checkpoint_name(self, stem: str) -> str:
+        match = versioned_filename_pattern.match(stem)
+        if match is not None:
+            return match.group("base")
+        return stem
