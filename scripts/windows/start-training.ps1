@@ -95,6 +95,35 @@ function Resolve-RepositoryPath {
     return (Join-Path $RepositoryRoot $Path)
 }
 
+function Resolve-CheckpointDownloadDirectory {
+    param(
+        [string]$RepositoryRoot,
+        [hashtable]$DotEnv
+    )
+
+    $configuredPath = Get-ConfigValue -DotEnv $DotEnv -Name "TMRL_DOWNLOAD_CHECKPOINT_DIR" -Fallback ""
+    if ([string]::IsNullOrWhiteSpace($configuredPath)) {
+        $configuredPath = Get-ConfigValue -DotEnv $DotEnv -Name "TMRL_CHECKPOINT_DIR" -Fallback ""
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($configuredPath)) {
+        return Resolve-RepositoryPath -RepositoryRoot $RepositoryRoot -Path $configuredPath
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($env:TMRL_DATA_DIR)) {
+        return Join-Path $env:TMRL_DATA_DIR "checkpoints"
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($env:USERPROFILE)) {
+        $userTmrlCheckpoints = Join-Path $env:USERPROFILE "TmrlData\checkpoints"
+        if (Test-Path -LiteralPath (Split-Path -Parent $userTmrlCheckpoints) -PathType Container) {
+            return $userTmrlCheckpoints
+        }
+    }
+
+    return Join-Path $RepositoryRoot "data\checkpoints"
+}
+
 function Quote-Argument {
     param([string]$Value)
     return '"' + ($Value -replace '"', '\"') + '"'
@@ -406,8 +435,7 @@ $dotenv = Read-DotEnv -Path (Join-Path $repoRoot ".env")
 $apiPort = Get-ConfigValue -DotEnv $dotenv -Name "API_PORT" -Fallback "8000"
 $apiUrl = Get-ConfigValue -DotEnv $dotenv -Name "TMRL_HUB_API_URL" -Fallback ("http://127.0.0.1:{0}" -f $apiPort)
 $apiToken = Get-ConfigValue -DotEnv $dotenv -Name "TMRL_HUB_API_TOKEN" -Fallback (Get-ConfigValue -DotEnv $dotenv -Name "API_TOKEN" -Fallback "")
-$checkpointDirConfig = Get-ConfigValue -DotEnv $dotenv -Name "TMRL_CHECKPOINT_DIR" -Fallback "data\checkpoints"
-$checkpointDir = Resolve-RepositoryPath -RepositoryRoot $repoRoot -Path $checkpointDirConfig
+$checkpointDir = Resolve-CheckpointDownloadDirectory -RepositoryRoot $repoRoot -DotEnv $dotenv
 
 if ($DownloadLatestCheckpoint -or (Test-TrueConfig -DotEnv $dotenv -Name "TMRL_DOWNLOAD_LATEST_ON_START")) {
     Invoke-LatestCheckpointDownload -ApiUrl $apiUrl -Token $apiToken -CheckpointDirectory $checkpointDir

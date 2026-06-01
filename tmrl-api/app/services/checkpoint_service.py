@@ -83,10 +83,11 @@ class CheckpointService:
             storage_path=str(destination),
             size_bytes=size,
             reward=reward,
-            is_latest=False,
+            is_latest=True,
             sha256=sha256.hexdigest(),
             content_type=upload.content_type,
         )
+        self.db.execute(update(CheckpointRecord).values(is_latest=False))
         self.db.add(record)
         self.db.commit()
         self.db.refresh(record)
@@ -163,23 +164,28 @@ class CheckpointService:
     def _next_versioned_filename(self, filename: str) -> str:
         path = Path(filename)
         suffix = path.suffix
-        base_name = self._base_checkpoint_name(path.stem)
+        base_name, requested_version = self._split_checkpoint_stem(path.stem)
         pattern = re.compile(rf"^{re.escape(base_name)}_v(?P<version>\d+){re.escape(suffix)}$")
-        max_version = 0
+        max_version = max(0, (requested_version or 1) - 1)
+        unversioned_name = f"{base_name}{suffix}"
 
         existing_names = self.db.scalars(
-            select(CheckpointRecord.file_name).where(CheckpointRecord.file_name.like(f"{base_name}_v%{suffix}"))
+            select(CheckpointRecord.file_name).where(CheckpointRecord.file_name.like(f"{base_name}%{suffix}"))
         ).all()
 
         for existing_name in existing_names:
+            if existing_name == unversioned_name:
+                max_version = max(max_version, 1)
+                continue
+
             match = pattern.match(existing_name)
             if match is not None:
                 max_version = max(max_version, int(match.group("version")))
 
         return f"{base_name}_v{max_version + 1:03d}{suffix}"
 
-    def _base_checkpoint_name(self, stem: str) -> str:
+    def _split_checkpoint_stem(self, stem: str) -> tuple[str, Optional[int]]:
         match = versioned_filename_pattern.match(stem)
         if match is not None:
-            return match.group("base")
-        return stem
+            return match.group("base"), int(match.group("version"))
+        return stem, None

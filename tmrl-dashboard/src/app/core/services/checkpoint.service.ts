@@ -37,14 +37,22 @@ export class CheckpointService {
   }
 
   downloadCheckpoint(id: string): Observable<CheckpointActionResult> {
+    const checkpoint = this.checkpointsState().find((item) => item.id === id);
+    const fileName = checkpoint?.fileName ?? `${id}.bin`;
+
     return this.api
       .download(
         `/checkpoints/${id}/download`,
         () => new Blob([`mock checkpoint payload for ${id}`], { type: 'application/octet-stream' }),
       )
       .pipe(
-        map(() => buildMockActionResult(id, 'downloaded', 'Download mock completato')),
+        tap((blob) => this.saveBlob(blob, fileName)),
+        map(() => buildMockActionResult(id, 'downloaded', `Download avviato: ${fileName}`)),
         tap((result) => this.actionMessageState.set(result.message)),
+        catchError((error: unknown) => {
+          this.actionMessageState.set('Download non riuscito');
+          return throwError(() => error);
+        }),
       );
   }
 
@@ -75,5 +83,21 @@ export class CheckpointService {
           this.actionMessageState.set(result.message);
         }),
       );
+  }
+
+  private saveBlob(blob: Blob, fileName: string): void {
+    if (typeof document === 'undefined' || typeof URL === 'undefined') {
+      return;
+    }
+
+    const objectUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = objectUrl;
+    anchor.download = fileName;
+    anchor.rel = 'noopener';
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(objectUrl);
   }
 }
