@@ -35,6 +35,7 @@ services:
       TMRL_METRICS_DIR: /data/metrics
       TMRL_LOG_DIR: /data/logs
       TMRL_ALLOWED_CHECKPOINT_EXTENSIONS: .pt,.pth,.ckpt,.tcpt,.tmod,.zip,.bin,.pkl
+      TMRL_CHOWN_DATA: "true"
     volumes:
       - ./data:/data
     ports:
