@@ -125,16 +125,62 @@ function Stop-ProcessTree {
     }
 }
 
-function Get-LatestCheckpointFile {
-    param([string]$CheckpointDirectory)
+function Get-CheckpointSearchDirectories {
+    param(
+        [string]$RepositoryRoot,
+        [string]$ConfiguredCheckpointDirectory
+    )
 
-    if (-not (Test-Path -LiteralPath $CheckpointDirectory -PathType Container)) {
-        return $null
+    $directories = New-Object System.Collections.Generic.List[string]
+
+    if (-not [string]::IsNullOrWhiteSpace($ConfiguredCheckpointDirectory)) {
+        $directories.Add($ConfiguredCheckpointDirectory) | Out-Null
     }
 
-    return Get-ChildItem -LiteralPath $CheckpointDirectory -File -ErrorAction SilentlyContinue |
-        Sort-Object LastWriteTimeUtc -Descending |
-        Select-Object -First 1
+    if (-not [string]::IsNullOrWhiteSpace($env:TMRL_DATA_DIR)) {
+        $directories.Add((Join-Path $env:TMRL_DATA_DIR "checkpoints")) | Out-Null
+        $directories.Add((Join-Path $env:TMRL_DATA_DIR "weights")) | Out-Null
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($env:USERPROFILE)) {
+        $tmrlDataRoot = Join-Path $env:USERPROFILE "TmrlData"
+        $directories.Add((Join-Path $tmrlDataRoot "checkpoints")) | Out-Null
+        $directories.Add((Join-Path $tmrlDataRoot "weights")) | Out-Null
+    }
+
+    $directories.Add((Join-Path $RepositoryRoot "data\checkpoints")) | Out-Null
+
+    return $directories |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+        Select-Object -Unique
+}
+
+function Get-LatestCheckpointFile {
+    param(
+        [string[]]$CheckpointDirectories,
+        [string[]]$AllowedExtensions
+    )
+
+    foreach ($checkpointDirectory in $CheckpointDirectories) {
+        if (-not (Test-Path -LiteralPath $checkpointDirectory -PathType Container)) {
+            continue
+        }
+
+        $latestFile = Get-ChildItem -LiteralPath $checkpointDirectory -File -ErrorAction SilentlyContinue |
+            Where-Object {
+                -not $_.Name.StartsWith(".") -and
+                $_.Length -gt 0 -and
+                $AllowedExtensions -contains $_.Extension.ToLowerInvariant()
+            } |
+            Sort-Object LastWriteTimeUtc -Descending |
+            Select-Object -First 1
+
+        if ($null -ne $latestFile) {
+            return $latestFile
+        }
+    }
+
+    return $null
 }
 
 function Invoke-CheckpointUpload {
@@ -277,12 +323,16 @@ if ($UploadFinalCheckpoint -or (Test-TrueConfig -DotEnv $dotenv -Name "TMRL_UPLO
     $apiToken = Get-ConfigValue -DotEnv $dotenv -Name "TMRL_HUB_API_TOKEN" -Fallback (Get-ConfigValue -DotEnv $dotenv -Name "API_TOKEN" -Fallback "")
     $checkpointDirConfig = Get-ConfigValue -DotEnv $dotenv -Name "TMRL_CHECKPOINT_DIR" -Fallback "data\checkpoints"
     $checkpointDir = Resolve-RepositoryPath -RepositoryRoot $repoRoot -Path $checkpointDirConfig
-    $latestCheckpoint = Get-LatestCheckpointFile -CheckpointDirectory $checkpointDir
+    $allowedExtensionsConfig = Get-ConfigValue -DotEnv $dotenv -Name "TMRL_ALLOWED_CHECKPOINT_EXTENSIONS" -Fallback ".pt,.pth,.ckpt,.tcpt,.tmod,.zip,.bin,.pkl"
+    $allowedExtensions = @($allowedExtensionsConfig.Split(",") | ForEach-Object { $_.Trim().ToLowerInvariant() } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    $checkpointDirectories = @(Get-CheckpointSearchDirectories -RepositoryRoot $repoRoot -ConfiguredCheckpointDirectory $checkpointDir)
+    $latestCheckpoint = Get-LatestCheckpointFile -CheckpointDirectories $checkpointDirectories -AllowedExtensions $allowedExtensions
 
     if ($null -eq $latestCheckpoint) {
-        Write-Warning "Upload checkpoint finale richiesto, ma nessun file trovato in $checkpointDir"
+        Write-Warning "Upload checkpoint finale richiesto, ma nessun file valido trovato. Directory cercate: $($checkpointDirectories -join ', ')"
     }
     else {
+        Write-Host "Checkpoint selezionato: $($latestCheckpoint.FullName)"
         Invoke-CheckpointUpload -ApiUrl $apiUrl -Token $apiToken -CheckpointPath $latestCheckpoint.FullName
     }
 }

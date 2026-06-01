@@ -82,6 +82,7 @@ Variabili supportate:
 $env:TMRL_HUB_API_URL = "http://127.0.0.1:8000"
 $env:TMRL_HUB_API_TOKEN = "inserisci-token-api"
 $env:TMRL_CHECKPOINT_DIR = "data\checkpoints"
+$env:TMRL_ALLOWED_CHECKPOINT_EXTENSIONS = ".pt,.pth,.ckpt,.tcpt,.tmod,.zip,.bin,.pkl"
 $env:TMRL_DOWNLOAD_LATEST_ON_START = "true"
 $env:TMRL_UPLOAD_FINAL_CHECKPOINT = "true"
 ```
@@ -105,6 +106,14 @@ Upload dell'ultimo checkpoint allo stop:
 ```powershell
 .\scripts\windows\stop-training.ps1 -UploadFinalCheckpoint
 ```
+
+Se `TMRL_CHECKPOINT_DIR` non e' configurato, lo script cerca automaticamente in:
+
+- `data\checkpoints`
+- `%TMRL_DATA_DIR%\checkpoints`
+- `%TMRL_DATA_DIR%\weights`
+- `%USERPROFILE%\TmrlData\checkpoints`
+- `%USERPROFILE%\TmrlData\weights`
 
 Endpoint usati:
 

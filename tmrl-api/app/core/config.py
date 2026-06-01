@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     metrics_dir: Path = Path("/data/metrics")
 
     max_checkpoint_upload_mb: int = 2048
-    allowed_checkpoint_extensions: str = ".pt,.pth,.ckpt,.zip,.bin,.pkl"
+    allowed_checkpoint_extensions: str = ".pt,.pth,.ckpt,.tcpt,.tmod,.zip,.bin,.pkl"
 
     @property
     def cors_origin_list(self) -> list[str]:
