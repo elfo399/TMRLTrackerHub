@@ -88,6 +88,24 @@ function Test-TrueConfig {
     return $value -match "^(1|true|yes|on)$"
 }
 
+function Resolve-PythonExecutable {
+    if (-not [string]::IsNullOrWhiteSpace($env:TMRL_PYTHON)) {
+        if (Test-Path -LiteralPath $env:TMRL_PYTHON -PathType Leaf) {
+            return (Resolve-Path -LiteralPath $env:TMRL_PYTHON).Path
+        }
+
+        $configuredCommand = Get-Command $env:TMRL_PYTHON -ErrorAction SilentlyContinue
+        if ($null -ne $configuredCommand) {
+            return $configuredCommand.Source
+        }
+
+        throw "TMRL_PYTHON non valido: $env:TMRL_PYTHON"
+    }
+
+    $pythonCommand = Get-Command python -ErrorAction Stop
+    return $pythonCommand.Source
+}
+
 function Resolve-RepositoryPath {
     param(
         [string]$RepositoryRoot,
@@ -430,11 +448,11 @@ New-Item -ItemType Directory -Force -Path (Split-Path -Parent $PidPath) | Out-Nu
 
 Write-Host ""
 Write-Host "TMRL $Role"
-Write-Host "Command: python -u -m tmrl --$Role"
+Write-Host "Command: $PythonExe -u -m tmrl --$Role"
 Write-Host "Log: $LogPath"
 Write-Host ""
 
-Write-LogLine -Path $LogPath -Message "starting role=$Role command=python -u -m tmrl --$Role"
+Write-LogLine -Path $LogPath -Message "starting role=$Role command=$PythonExe -u -m tmrl --$Role"
 
 $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
 $startInfo.FileName = $PythonExe
@@ -627,8 +645,7 @@ if ($LASTEXITCODE -ne 0 -and -not $Force) {
     throw "check-environment non superato. Avvia Trackmania/Openplanet o usa -Force se vuoi proseguire comunque."
 }
 
-$pythonCommand = Get-Command python -ErrorAction Stop
-$pythonExe = $pythonCommand.Source
+$pythonExe = Resolve-PythonExecutable
 $powerShellExe = (Get-Process -Id $PID).Path
 if ([string]::IsNullOrWhiteSpace($powerShellExe)) {
     $powerShellExe = Join-Path $PSHOME "powershell.exe"

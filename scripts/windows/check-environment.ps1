@@ -63,6 +63,28 @@ function Test-TcpSocket {
     }
 }
 
+function Resolve-PythonExecutable {
+    if (-not [string]::IsNullOrWhiteSpace($env:TMRL_PYTHON)) {
+        if (Test-Path -LiteralPath $env:TMRL_PYTHON -PathType Leaf) {
+            return (Resolve-Path -LiteralPath $env:TMRL_PYTHON).Path
+        }
+
+        $configuredCommand = Get-Command $env:TMRL_PYTHON -ErrorAction SilentlyContinue
+        if ($null -ne $configuredCommand) {
+            return $configuredCommand.Source
+        }
+
+        return $null
+    }
+
+    $pythonCommand = Get-Command python -ErrorAction SilentlyContinue
+    if ($null -eq $pythonCommand) {
+        return $null
+    }
+
+    return $pythonCommand.Source
+}
+
 function Find-Trackmania {
     $foundItems = New-Object System.Collections.Generic.List[string]
 
@@ -147,21 +169,26 @@ Write-Host "TMRL Windows environment check"
 Write-Host "Repository: $repoRoot"
 Write-Host ""
 
-$pythonCommand = Get-Command python -ErrorAction SilentlyContinue
-if ($null -eq $pythonCommand) {
-    Add-CheckResult $results "Python" "FAIL" "python non trovato nel PATH"
+$pythonExe = Resolve-PythonExecutable
+if ($null -eq $pythonExe) {
+    if (-not [string]::IsNullOrWhiteSpace($env:TMRL_PYTHON)) {
+        Add-CheckResult $results "Python" "FAIL" "TMRL_PYTHON non valido: $env:TMRL_PYTHON"
+    }
+    else {
+        Add-CheckResult $results "Python" "FAIL" "python non trovato nel PATH"
+    }
 }
 else {
-    $pythonVersion = (& $pythonCommand.Source --version 2>&1 | Out-String).Trim()
-    Add-CheckResult $results "Python" "OK" "$pythonVersion ($($pythonCommand.Source))"
+    $pythonVersion = (& $pythonExe --version 2>&1 | Out-String).Trim()
+    Add-CheckResult $results "Python" "OK" "$pythonVersion ($pythonExe)"
 }
 
-if ($null -eq $pythonCommand) {
+if ($null -eq $pythonExe) {
     Add-CheckResult $results "TMRL" "FAIL" "impossibile verificare TMRL senza Python"
 }
 else {
     try {
-        $tmrlVersion = (& $pythonCommand.Source -c "import tmrl; print(getattr(tmrl, '__version__', 'installed'))" 2>&1 | Out-String).Trim()
+        $tmrlVersion = (& $pythonExe -c "import tmrl; print(getattr(tmrl, '__version__', 'installed'))" 2>&1 | Out-String).Trim()
         if ([string]::IsNullOrWhiteSpace($tmrlVersion)) {
             $tmrlVersion = "installed"
         }

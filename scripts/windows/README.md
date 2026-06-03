@@ -4,8 +4,8 @@ Questi script avviano e fermano un training TMRL locale su Windows 10/11 usando 
 
 ## Prerequisiti
 
-- Python installato e disponibile nel `PATH`
-- TMRL installato nell'ambiente Python usato dal comando `python`
+- Python installato e disponibile nel `PATH`, oppure configurato con `TMRL_PYTHON`
+- TMRL installato nell'ambiente Python usato dagli script
 - Trackmania installato
 - Openplanet installato
 - Plugin `TMRL_GrabData` attivo
@@ -30,6 +30,7 @@ Lo script verifica:
 Se usi percorsi custom puoi impostare:
 
 ```powershell
+$env:TMRL_PYTHON = "C:\path\to\python.exe"
 $env:TMRL_TRACKMANIA_PATH = "<percorso>\Trackmania.exe"
 $env:TMRL_DATA_DIR = "<percorso>\TmrlData"
 ```
