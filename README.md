@@ -1,226 +1,50 @@
-# TMRLTrackerHub
+<div align="center">
 
-TMRLTrackerHub is a Docker-ready monitoring hub for Trackmania/TMRL reinforcement learning runs.
+# 🏁 TMRLTrackerHub
+### Your training run deserves a pit wall.
 
-It contains:
+**One place to follow your Trackmania reinforcement learning experiments, spot progress, and keep every important checkpoint within reach.**
 
-- `tmrl-dashboard`: Angular frontend served by Nginx.
-- `tmrl-api`: FastAPI backend for status, metrics, checkpoints, sessions, and file transfer.
-- `tmrl-db`: PostgreSQL service defined in the root Docker Compose file.
-- `data`: persistent host-mounted storage for checkpoints, replay memory, metrics, and logs.
+**Live status · Performance metrics · Training sessions · Model checkpoints**
 
-## Repository Layout
+</div>
 
-```text
-TMRLTRACKERHUB/
-├── docker-compose.yml
-├── .env.example
-├── .gitignore
-├── README.md
-├── LICENSE
-├── data/
-│   ├── checkpoints/
-│   ├── memory/
-│   ├── metrics/
-│   └── logs/
-├── docs/
-│   ├── architecture.md
-│   ├── backend-integration.md
-│   └── deployment.md
-├── tmrl-api/
-│   ├── Dockerfile
-│   ├── .dockerignore
-│   ├── requirements.txt
-│   ├── app/
-│   └── scripts/
-└── tmrl-dashboard/
-    ├── Dockerfile
-    ├── .dockerignore
-    ├── nginx.conf
-    ├── package.json
-    ├── angular.json
-    └── src/
-```
+---
 
-## Configuration
+## Stop guessing. Start seeing your progress.
 
-Create a local `.env` from the example:
+Training an AI driver is a race of its own. Some runs take off, some hit a wall, and the most interesting breakthroughs often hide in the data.
 
-```bash
-cp .env.example .env
-```
+**TMRLTrackerHub** brings your training activity into focus. Instead of jumping between logs and scattered model files, get a clearer picture of what your agent is doing, how it's improving, and where you left off.
 
-Required values:
+## Everything your training journey needs
 
-```text
-API_TOKEN=change-me
-POSTGRES_DB=tmrl
-POSTGRES_USER=tmrl
-POSTGRES_PASSWORD=change-me
-API_PORT=8000
-DASHBOARD_PORT=8080
-CORS_ORIGINS=http://localhost:4200,http://localhost:8080
-```
+| | |
+| :--- | :--- |
+| 🟢 **Know what's happening** | See the status of your training setup and find out whether a run is active. |
+| 📈 **Make progress visible** | Explore rewards and training metrics to understand how each experiment evolves. |
+| 🏎️ **Keep every run in sight** | Browse training sessions and revisit the history behind your results. |
+| 💾 **Never lose a milestone** | Upload, organize, download, and identify the latest model checkpoints. |
+| 🏠 **Your data, your space** | Keep your training records and model files on infrastructure you control. |
 
-Use a strong `API_TOKEN` and `POSTGRES_PASSWORD` outside local development.
+## Built for the long race
 
-## Frontend Development
+From a quick experiment to a long-running training session, TMRLTrackerHub is the place where the bigger picture comes together.
 
-```bash
-cd tmrl-dashboard
-npm install
-npm start
-```
+**Train on your machine. Follow the results through the dashboard. Save the moments worth keeping.**
 
-The Angular app calls the live API configured in Settings:
+It's not an AI driver or a training algorithm: **it's the home for the journey of building one.**
 
-```text
-API URL: /api
-```
+---
 
-Production build:
+<div align="center">
 
-```bash
-cd tmrl-dashboard
-npm run build:prod
-```
+### Every run is progress. Make it count.
 
-## Backend Development
+**Explore TMRLTrackerHub and give your experiments a place to grow.**
 
-Use Python 3.11+.
+[**🚀 Get started**](docs/GETTING_STARTED.md) · [**🗺️ Explore the project**](docs/architecture.md) · [**💻 Browse the repository**](https://github.com/elfo399/TMRLTrackerHub)
 
-```bash
-cd tmrl-api
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
+<sub>An independent monitoring hub for Trackmania reinforcement learning projects.</sub>
 
-For local development without Docker, point storage to the root `data` folder:
-
-```bash
-export TMRL_DATABASE_URL=sqlite:///../data/tmrl.db
-export TMRL_CHECKPOINT_DIR=../data/checkpoints
-export TMRL_MEMORY_DIR=../data/memory
-export TMRL_METRICS_DIR=../data/metrics
-export TMRL_LOG_DIR=../data/logs
-export TMRL_API_TOKEN=change-me
-export TMRL_CORS_ORIGINS=http://localhost:4200,http://localhost:8080
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-Health check:
-
-```bash
-curl http://localhost:8000/api/health
-```
-
-## Docker Compose
-
-Build and start the full stack:
-
-```bash
-docker compose up -d --build
-```
-
-Default ports:
-
-```text
-Dashboard: http://localhost:8080
-API:       http://localhost:8000/api
-```
-
-Stop:
-
-```bash
-docker compose down
-```
-
-View logs:
-
-```bash
-docker compose logs -f tmrl-api
-docker compose logs -f tmrl-dashboard
-```
-
-## Raspberry/Linux Deploy
-
-On the server:
-
-```bash
-git clone <repo-url> TMRLTrackerHub
-cd TMRLTrackerHub
-cp .env.example .env
-mkdir -p data/checkpoints data/memory data/metrics data/logs
-docker compose up -d --build
-```
-
-The compose file uses multi-arch base images suitable for ARM64:
-
-- `python:3.11-slim`
-- `node:22-alpine`
-- `nginx:1.27-alpine`
-- `postgres:16-alpine`
-
-If your Linux user owns the repository, the bind-mounted `./data:/data` directory remains easy to back up and inspect.
-
-## Reverse Proxy
-
-Recommended public route:
-
-```text
-https://your-domain.example -> tmrl-dashboard:80
-```
-
-The dashboard Nginx serves the Angular SPA and proxies:
-
-```text
-/api/* -> http://tmrl-api:8000/api/*
-```
-
-If your external reverse proxy routes API separately, keep the same public `/api` path so the frontend can use relative API URLs.
-
-## Backup
-
-Back up persistent data:
-
-```bash
-tar -czf tmrl-data-backup.tgz data
-docker compose exec tmrl-db pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" > postgres-backup.sql
-```
-
-Restore files:
-
-```bash
-tar -xzf tmrl-data-backup.tgz
-```
-
-Restore PostgreSQL:
-
-```bash
-cat postgres-backup.sql | docker compose exec -T tmrl-db psql -U "$POSTGRES_USER" "$POSTGRES_DB"
-```
-
-## Useful Endpoints
-
-```text
-GET    /api/health
-GET    /api/status
-GET    /api/metrics
-POST   /api/metrics
-GET    /api/checkpoints
-POST   /api/checkpoints/upload
-GET    /api/checkpoints/{id}/download
-POST   /api/checkpoints/{id}/latest
-DELETE /api/checkpoints/{id}
-GET    /api/sessions
-POST   /api/sessions
-PATCH  /api/sessions/{id}
-GET    /api/export/latest
-```
-
-Protected write endpoints require:
-
-```http
-Authorization: Bearer <API_TOKEN>
-```
+</div>
